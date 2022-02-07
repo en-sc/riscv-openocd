@@ -11,6 +11,7 @@
 
 #include "rtos.h"
 #include "target/target.h"
+#include "target/smp.h"
 #include "helper/log.h"
 #include "helper/binarybuffer.h"
 #include "helper/types.h"
@@ -715,10 +716,29 @@ int rtos_generic_stack_read(struct target *target,
 	return ERROR_OK;
 }
 
+struct rtos *rtos_of_target(struct target *target)
+{
+	/* Primarily consider the rtos field of the target itself, secondarily consider
+	 * rtos field SMP leader target, then consider rtos field of any other target in the SMP group.
+	 * Otherwise NULL return means that no associated non-zero rtos field could be found. */
+
+	struct target_list *pos;
+
+	if ((target->rtos) && (target->rtos->type))
+		return target->rtos;
+
+	foreach_smp_target(pos, target->smp_targets)
+		if ((pos->target->rtos) && (pos->target->rtos->type))
+			return pos->target->rtos;
+
+	return NULL;
+}
+
 int rtos_update_threads(struct target *target)
 {
-	if ((target->rtos) && (target->rtos->type))
-		target->rtos->type->update_threads(target->rtos);
+	struct rtos *rtos = rtos_of_target(target);
+	if (rtos)
+		rtos->type->update_threads(rtos);
 	return ERROR_OK;
 }
 
