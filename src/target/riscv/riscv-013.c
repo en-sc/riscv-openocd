@@ -3396,16 +3396,6 @@ static int write_memory_abstract(struct target *target, target_addr_t address,
 	return result;
 }
 
-static uint32_t read_memory_progbuf_inner_startup_command(struct target *target)
-{
-	/* AC_ACCESS_REGISTER_POSTEXEC is used to trigger first stage of the
-	 * pipeline (memory -> s1) whenever this command is executed
-	 * (see the comment for read_memory_progbuf_inner_startup())
-	 */
-	return access_register_command(target, GDB_REGNO_S1, riscv_xlen(target),
-			AC_ACCESS_REGISTER_TRANSFER | AC_ACCESS_REGISTER_POSTEXEC);
-}
-
 /**
  * This function is used to start the memory-reading pipeline.
  * The pipeline looks like this:
@@ -3419,9 +3409,9 @@ static int read_memory_progbuf_inner_startup(struct target *target,
 		target_addr_t address, uint32_t increment, uint32_t index)
 {
 	RISCV013_INFO(info);
-	/* s0 holds the next address to read from
-	 * s1 holds the next data value read
-	 * a0 is a counter in case increment is 0
+	/* s0 holds the next address to read from.
+	 * s1 holds the next data value read.
+	 * a0 is a counter in case increment is 0.
 	 */
 	if (register_write_direct(target, GDB_REGNO_S0, address + index * increment)
 			!= ERROR_OK)
@@ -3431,13 +3421,17 @@ static int read_memory_progbuf_inner_startup(struct target *target,
 			register_write_direct(target, GDB_REGNO_A0, index) != ERROR_OK)
 		return ERROR_FAIL;
 
-	const uint32_t startup_command =
-		read_memory_progbuf_inner_startup_command(target);
+	/* AC_ACCESS_REGISTER_POSTEXEC is used to trigger first stage of the
+	 * pipeline (memory -> s1) whenever this command is executed.
+	 */
+	const uint32_t startup_command = access_register_command(target,
+			GDB_REGNO_S1, riscv_xlen(target),
+			AC_ACCESS_REGISTER_TRANSFER | AC_ACCESS_REGISTER_POSTEXEC);
 	if (execute_abstract_command(target, startup_command) != ERROR_OK)
 		return ERROR_FAIL;
 
 	/* First read has just triggered. Result is in s1.
-	 * dm_data registers contain the previos value of s1 (garbage).
+	 * dm_data registers contain the previous value of s1 (garbage).
 	 */
 	if (dmi_write(target, DM_ABSTRACTAUTO,
 				set_field(0, DM_ABSTRACTAUTO_AUTOEXECDATA, 1)) != ERROR_OK)
@@ -3461,6 +3455,7 @@ static int read_memory_progbuf_inner_startup(struct target *target,
 	switch (info->cmderr) {
 	case CMDERR_NONE:
 		break;
+	case CMDERR_BUSY:
 		LOG_TARGET_ERROR(target, "Unexpected busy error. This is probably a hardware bug.");
 		/* fall through */
 	default:
@@ -3559,7 +3554,7 @@ static int read_memory_progbuf_inner_on_dmi_busy(struct target *target,
 /**
  * This function extracts the data from the batch.
  */
-static int read_memory_progbuf_inner_read_batch(struct target *target,
+static int read_memory_progbuf_inner_extract_batch_data(struct target *target,
 		const struct riscv_batch *batch,
 		uint32_t start_index, uint32_t elements_to_read, uint32_t *elements_read,
 		struct memory_access_info access)
@@ -3615,9 +3610,8 @@ static int read_memory_progbuf_inner_read_batch(struct target *target,
  * Prior to calling this function the folowing conditions should be met:
  * - Appropriate program loaded to program buffer.
  * - DM_ABSTRACTAUTO_AUTOEXECDATA is set.
- * At least one element is read.
  */
-static int read_memory_progbuf_inner_process_batch(struct target *target,
+static int read_memory_progbuf_inner_run_and_process_batch(struct target *target,
 		struct riscv_batch *batch, struct memory_access_info access,
 		uint32_t start_index, uint32_t elements_to_read, uint32_t *elements_read)
 {
@@ -3654,43 +3648,11 @@ static int read_memory_progbuf_inner_process_batch(struct target *target,
 		return ERROR_FAIL;
 	}
 
-	if (read_memory_progbuf_inner_read_batch(target, batch, start_index,
+	if (read_memory_progbuf_inner_extract_batch_data(target, batch, start_index,
 				elements_to_fetch_from_batch, elements_read, access) != ERROR_OK)
 		return ERROR_FAIL;
 
 	return ERROR_OK;
-}
-
-static int read_memory_progbuf_inner_loop_iteration(struct target *target,
-		struct memory_access_info access, uint32_t *index, uint32_t loop_count);
-
-static int read_memory_progbuf_inner_ensure_forward_progress(struct target *target,
-		struct memory_access_info access, uint32_t start_index, uint32_t elements_to_read)
-{
-	if (elements_to_read == 1) {
-		LOG_TARGET_DEBUG(target, "Busy on reading one element");
-		/* FIXME: Here it would be better to fail only if delay is greater then
-		 * some threashhold
-		 */
-		return ERROR_FAIL;
-	}
-	LOG_TARGET_DEBUG(target,
-			"Executing one loop iteration to ensure forward progress (index=%"
-			PRIu32 ")", start_index);
-	const target_addr_t curr_target_address = access.target_address +
-		start_index * access.increment;
-	uint8_t * const curr_buffer_address = access.buffer_address +
-		start_index * access.element_size;
-	const struct memory_access_info curr_access = {
-		.buffer_address = curr_buffer_address,
-		.target_address = curr_target_address,
-		.element_size = access.element_size,
-		.increment = access.increment,
-	};
-	uint32_t index_step = 0;
-
-	return read_memory_progbuf_inner_loop_iteration(target, curr_access,
-			&index_step, 1);
 }
 
 static uint32_t read_memory_progbuf_inner_fill_batch(struct riscv_batch *batch,
@@ -3710,12 +3672,9 @@ static uint32_t read_memory_progbuf_inner_fill_batch(struct riscv_batch *batch,
 	return end;
 }
 
-/**
- * This function guarantees forward progress, meaning
- * at least one element is always read and *index is always increased.
- */
-static int read_memory_progbuf_inner_loop_iteration(struct target *target,
-		struct memory_access_info access, uint32_t *index, uint32_t loop_count)
+static int read_memory_progbuf_inner_try_to_read(struct target *target,
+		struct memory_access_info access, uint32_t *elements_read,
+		uint32_t index, uint32_t loop_count)
 {
 	RISCV013_INFO(info);
 	struct riscv_batch *batch = riscv_batch_alloc(target, RISCV_BATCH_ALLOC_SIZE,
@@ -3724,26 +3683,48 @@ static int read_memory_progbuf_inner_loop_iteration(struct target *target,
 		return ERROR_FAIL;
 
 	const uint32_t elements_to_read = read_memory_progbuf_inner_fill_batch(batch,
-			loop_count - *index, access.element_size);
+			loop_count - index, access.element_size);
 
-	uint32_t elements_read;
-	int result = read_memory_progbuf_inner_process_batch(target, batch, access,
-			*index, elements_to_read, &elements_read);
-	if (result != ERROR_OK)
-		goto free_batch;
-	if (elements_read == 0) {
-		result = read_memory_progbuf_inner_ensure_forward_progress(target, access,
-				*index, elements_to_read);
-		if (result != ERROR_OK)
-			goto free_batch;
-		elements_read = 1;
-	}
-	const uint32_t next_index = *index + elements_read;
-	assert(elements_read > 0 && next_index <= loop_count);
-	*index = next_index;
-free_batch:
+	int result = read_memory_progbuf_inner_run_and_process_batch(target, batch,
+			access, index, elements_to_read, elements_read);
 	riscv_batch_free(batch);
 	return result;
+}
+
+/**
+ * read_memory_progbuf_inner_startup() must be called before calling this function
+ * with the address argument equal to curr_target_address.
+ */
+static int read_memory_progbuf_inner_ensure_forward_progress(struct target *target,
+		struct memory_access_info access, uint32_t start_index)
+{
+	LOG_TARGET_DEBUG(target,
+			"Executing one loop iteration to ensure forward progress (index=%"
+			PRIu32 ")", start_index);
+	const target_addr_t curr_target_address = access.target_address +
+		start_index * access.increment;
+	uint8_t * const curr_buffer_address = access.buffer_address +
+		start_index * access.element_size;
+	const struct memory_access_info curr_access = {
+		.buffer_address = curr_buffer_address,
+		.target_address = curr_target_address,
+		.element_size = access.element_size,
+		.increment = access.increment,
+	};
+	uint32_t elements_read = 0;
+	if (read_memory_progbuf_inner_try_to_read(target, curr_access, &elements_read,
+			/*index*/ 0, /*loop_count*/ 1) != ERROR_OK)
+		return ERROR_FAIL;
+
+	if (elements_read != 1) {
+		assert(elements_read == 0);
+		LOG_TARGET_DEBUG(target, "Can not ensure forward progress");
+		/* FIXME: Here it would be better to retry the read and fail only if the
+		 * delay is greater then some threshold.
+		 */
+		return ERROR_FAIL;
+	}
+	return ERROR_OK;
 }
 
 static void set_buffer_and_log_read(struct memory_access_info access,
@@ -3873,12 +3854,24 @@ static int read_memory_progbuf_inner(struct target *target,
 	 */
 	const uint32_t loop_count = count - 2;
 
-	for (uint32_t index = 0; index < loop_count;)
-		if (read_memory_progbuf_inner_loop_iteration(target, access, &index,
-					loop_count) != ERROR_OK) {
+	for (uint32_t index = 0; index < loop_count;) {
+		uint32_t elements_read;
+		if (read_memory_progbuf_inner_try_to_read(target, access, &elements_read,
+					index, loop_count) != ERROR_OK) {
 			dmi_write(target, DM_ABSTRACTAUTO, 0);
 			return ERROR_FAIL;
 		}
+		if (elements_read == 0) {
+			if (read_memory_progbuf_inner_ensure_forward_progress(target, access,
+						index) != ERROR_OK) {
+				dmi_write(target, DM_ABSTRACTAUTO, 0);
+				return ERROR_FAIL;
+			}
+			elements_read = 1;
+		}
+		index += elements_read;
+		assert(index <= loop_count);
+	}
 	if (dmi_write(target, DM_ABSTRACTAUTO, 0) != ERROR_OK)
 		return ERROR_FAIL;
 
