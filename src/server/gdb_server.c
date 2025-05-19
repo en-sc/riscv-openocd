@@ -174,7 +174,7 @@ struct target *get_available_target_from_connection(struct connection *connectio
 	return target;
 }
 
-/** Return true iff the given connection includes the given target. */
+/** Return true if the given connection includes the given target. */
 static bool gdb_connection_includes_target(struct connection *connection, struct target *target)
 {
 	struct gdb_service *gdb_service = connection->service->priv;
@@ -3212,7 +3212,7 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 		}
 
 		if (ct->state == TARGET_UNAVAILABLE) {
-			LOG_TARGET_ERROR(ct, "Target is unavailable, so cannot be stepped. "
+			LOG_TARGET_INFO(ct, "Target is unavailable, so cannot be stepped. "
 				"Pretending to gdb that it is running until it's available again.");
 			retval = ERROR_FAIL;
 		} else {
@@ -3820,8 +3820,8 @@ static int gdb_input_inner(struct connection *connection)
 					target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
 				gdb_con->ctrl_c = false;
 			} else {
-				LOG_TARGET_INFO(target, "Not running when halt was requested, stopping GDB. (state=%d)",
-						target->state);
+				LOG_TARGET_INFO(target, "Not running (%s) when halt was requested, stopping GDB",
+						target_state_name(target));
 				target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
 			}
 		}
