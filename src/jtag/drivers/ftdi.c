@@ -666,38 +666,38 @@ static void ftdi_execute_command(struct jtag_command *cmd)
 {
 	switch (cmd->type) {
 #if BUILD_FTDI_CJTAG == 1
-		case JTAG_RESET:
-			if (cmd->cmd.reset->trst)
-				cjtag_reset_online_activate(); /* put the target (back) into selected cJTAG mode */
-			break;
-#endif
-		case JTAG_RUNTEST:
-			ftdi_execute_runtest(cmd);
-			break;
-		case JTAG_TLR_RESET:
-#if BUILD_FTDI_CJTAG == 1
+	case JTAG_RESET:
+		if (cmd->cmd.reset->trst)
 			cjtag_reset_online_activate(); /* put the target (back) into selected cJTAG mode */
+		break;
 #endif
-			ftdi_execute_statemove(cmd);
-			break;
-		case JTAG_PATHMOVE:
-			ftdi_execute_pathmove(cmd);
-			break;
-		case JTAG_SCAN:
-			ftdi_execute_scan(cmd);
-			break;
-		case JTAG_SLEEP:
-			ftdi_execute_sleep(cmd);
-			break;
-		case JTAG_STABLECLOCKS:
-			ftdi_execute_stableclocks(cmd);
-			break;
-		case JTAG_TMS:
-			ftdi_execute_tms(cmd);
-			break;
-		default:
-			LOG_ERROR("BUG: unknown JTAG command type encountered: %d", cmd->type);
-			break;
+	case JTAG_RUNTEST:
+		ftdi_execute_runtest(cmd);
+		break;
+	case JTAG_TLR_RESET:
+#if BUILD_FTDI_CJTAG == 1
+		cjtag_reset_online_activate(); /* put the target (back) into selected cJTAG mode */
+#endif
+		ftdi_execute_statemove(cmd);
+		break;
+	case JTAG_PATHMOVE:
+		ftdi_execute_pathmove(cmd);
+		break;
+	case JTAG_SCAN:
+		ftdi_execute_scan(cmd);
+		break;
+	case JTAG_SLEEP:
+		ftdi_execute_sleep(cmd);
+		break;
+	case JTAG_STABLECLOCKS:
+		ftdi_execute_stableclocks(cmd);
+		break;
+	case JTAG_TMS:
+		ftdi_execute_tms(cmd);
+		break;
+	default:
+		LOG_ERROR("BUG: unknown JTAG command type encountered: %d", cmd->type);
+		break;
 	}
 }
 

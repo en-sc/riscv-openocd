@@ -50,6 +50,8 @@
  * found in most modern embedded processors.
  */
 
+#define CTRL(c) ((c) - '@')
+
 enum gdb_output_flag {
 	/* GDB doesn't accept 'O' packets */
 	GDB_OUTPUT_NO,
@@ -477,6 +479,10 @@ static int gdb_put_packet_inner(struct connection *connection,
 			gdb_putback_char(connection, reply);
 			LOG_DEBUG("Unexpected start of new packet");
 			break;
+		} else if (reply == CTRL('C')) {
+			/* do not discard Ctrl-C */
+			gdb_putback_char(connection, reply);
+			break;
 		}
 
 		LOG_DEBUG("Discard unexpected char %c", reply);
@@ -488,7 +494,7 @@ static int gdb_put_packet_inner(struct connection *connection,
 
 		char local_buffer[1024];
 		local_buffer[0] = '$';
-		if ((size_t)len + 4 <= sizeof(local_buffer)) {
+		if ((size_t)len + 5 <= sizeof(local_buffer)) {
 			/* performance gain on smaller packets by only a single call to gdb_write() */
 			memcpy(local_buffer + 1, buffer, len++);
 			len += snprintf(local_buffer + len, sizeof(local_buffer) - len, "#%02x", my_checksum);
@@ -525,7 +531,7 @@ static int gdb_put_packet_inner(struct connection *connection,
 			gdb_con->output_flag = GDB_OUTPUT_NO;
 			gdb_log_incoming_packet(connection, "-");
 			LOG_WARNING("negative reply, retrying");
-		} else if (reply == 0x3) {
+		} else if (reply == CTRL('C')) {
 			gdb_con->ctrl_c = true;
 			gdb_log_incoming_packet(connection, "<Ctrl-C>");
 			retval = gdb_get_char(connection, &reply);
@@ -735,7 +741,7 @@ static int gdb_get_packet_inner(struct connection *connection,
 					gdb_log_incoming_packet(connection, "-");
 					LOG_WARNING("negative acknowledgment, but no packet pending");
 					break;
-				case 0x3:
+				case CTRL('C'):
 					gdb_log_incoming_packet(connection, "<Ctrl-C>");
 					gdb_con->ctrl_c = true;
 					*len = 0;
@@ -1058,8 +1064,8 @@ static int gdb_new_connection(struct connection *connection)
 	 * GDB session could leave dangling breakpoints if e.g. communication
 	 * timed out.
 	 */
-	breakpoint_clear_target(target);
-	watchpoint_clear_target(target);
+	breakpoint_remove_all(target);
+	watchpoint_remove_all(target);
 
 	/* Since version 3.95 (gdb-19990504), with the exclusion of 6.5~6.8, GDB
 	 * sends an ACK at connection with the following comment in its source code:
@@ -1579,7 +1585,7 @@ static int gdb_read_memory_packet(struct connection *connection,
 
 	buffer = malloc(len);
 
-	LOG_DEBUG("addr: 0x%16.16" PRIx64 ", len: 0x%8.8" PRIx32 "", addr, len);
+	LOG_DEBUG("addr: 0x%16.16" PRIx64 ", len: 0x%8.8" PRIx32, addr, len);
 
 	retval = ERROR_NOT_IMPLEMENTED;
 	if (target->rtos)
@@ -1651,7 +1657,7 @@ static int gdb_write_memory_packet(struct connection *connection,
 
 	buffer = malloc(len);
 
-	LOG_DEBUG("addr: 0x%" PRIx64 ", len: 0x%8.8" PRIx32 "", addr, len);
+	LOG_DEBUG("addr: 0x%" PRIx64 ", len: 0x%8.8" PRIx32, addr, len);
 
 	if (unhexify(buffer, separator, len) != len)
 		LOG_ERROR("unable to decode memory packet");
@@ -1727,7 +1733,7 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
 	}
 
 	if (len) {
-		LOG_DEBUG("addr: 0x%" PRIx64 ", len: 0x%8.8" PRIx32 "", addr, len);
+		LOG_DEBUG("addr: 0x%" PRIx64 ", len: 0x%8.8" PRIx32, addr, len);
 
 		retval = ERROR_NOT_IMPLEMENTED;
 		if (target->rtos)
@@ -2904,7 +2910,7 @@ static int gdb_query_packet(struct connection *connection,
 			gdb_connection->output_flag = GDB_OUTPUT_NO;
 
 			if (retval == ERROR_OK) {
-				snprintf(gdb_reply, 10, "C%8.8" PRIx32 "", checksum);
+				snprintf(gdb_reply, 10, "C%8.8" PRIx32, checksum);
 				gdb_put_packet(connection, gdb_reply, 9);
 			} else {
 				retval = gdb_error(connection, retval);
@@ -3039,7 +3045,7 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 	__attribute__((unused)) int packet_size)
 {
 	struct gdb_connection *gdb_connection = connection->priv;
-	struct target *target = get_target_from_connection(connection);
+	struct target *target = get_available_target_from_connection(connection);
 	const char *parse = packet;
 	int retval;
 
@@ -3284,8 +3290,8 @@ static void gdb_restart_inferior(struct connection *connection, const char *pack
 	struct gdb_connection *gdb_con = connection->priv;
 	struct target *target = get_target_from_connection(connection);
 
-	breakpoint_clear_target(target);
-	watchpoint_clear_target(target);
+	breakpoint_remove_all(target);
+	watchpoint_remove_all(target);
 	command_run_linef(connection->cmd_ctx, "ocd_gdb_restart %s",
 			target_name(target));
 	/* set connection as attached after reset */

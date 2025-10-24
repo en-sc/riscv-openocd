@@ -3013,9 +3013,9 @@ static int riscv_effective_privilege_mode(struct target *target, int *v_mode, in
 	return ERROR_OK;
 }
 
-static int riscv_mmu(struct target *target, int *enabled)
+static int riscv_mmu(struct target *target, bool *enabled)
 {
-	*enabled = 0;
+	*enabled = false;
 
 	if (!riscv_virt2phys_mode_is_sw(target))
 		return ERROR_OK;
@@ -3046,7 +3046,7 @@ static int riscv_mmu(struct target *target, int *enabled)
 		/* vsatp is identical to satp, so we can use the satp macros. */
 		if (get_field(vsatp, RISCV_SATP_MODE(xlen)) != SATP_MODE_OFF) {
 			LOG_TARGET_DEBUG(target, "VS-stage translation is enabled.");
-			*enabled = 1;
+			*enabled = true;
 			return ERROR_OK;
 		}
 
@@ -3058,7 +3058,7 @@ static int riscv_mmu(struct target *target, int *enabled)
 		}
 		if (get_field(hgatp, RISCV_HGATP_MODE(xlen)) != HGATP_MODE_OFF) {
 			LOG_TARGET_DEBUG(target, "G-stage address translation is enabled.");
-			*enabled = 1;
+			*enabled = true;
 		} else {
 			LOG_TARGET_DEBUG(target, "No V-mode address translation enabled.");
 		}
@@ -3083,7 +3083,7 @@ static int riscv_mmu(struct target *target, int *enabled)
 		LOG_TARGET_DEBUG(target, "MMU is disabled.");
 	} else {
 		LOG_TARGET_DEBUG(target, "MMU is enabled.");
-		*enabled = 1;
+		*enabled = true;
 	}
 
 	return ERROR_OK;
@@ -3299,7 +3299,7 @@ static int riscv_virt2phys_v(struct target *target, target_addr_t virtual, targe
 
 static int riscv_virt2phys(struct target *target, target_addr_t virtual, target_addr_t *physical)
 {
-	int enabled;
+	bool enabled;
 	if (riscv_mmu(target, &enabled) != ERROR_OK)
 		return ERROR_FAIL;
 	if (!enabled) {

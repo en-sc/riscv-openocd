@@ -211,8 +211,8 @@ static int hwthread_update_threads(struct rtos *rtos)
 	else
 		rtos->current_thread = threadid_from_target(target);
 
-	LOG_TARGET_DEBUG(target, "current_thread=%i, threads_found=%d",
-			(int)rtos->current_thread, threads_found);
+	LOG_TARGET_DEBUG(target, "current_thread=%" PRId64 ", threads_found=%d",
+					 rtos->current_thread, threads_found);
 	return 0;
 }
 
@@ -422,7 +422,7 @@ static int hwthread_create(struct target *target)
 	target->rtos->thread_details = NULL;
 	target->rtos->gdb_target_for_threadid = hwthread_target_for_threadid;
 	target->rtos->gdb_thread_packet = hwthread_thread_packet;
-	return 0;
+	return ERROR_OK;
 }
 
 static bool hwthread_needs_fake_step(struct target *target, int64_t thread_id)

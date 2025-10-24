@@ -71,45 +71,45 @@ static int target_gdb_fileio_end_default(struct target *target, int retcode,
 		int fileio_errno, bool ctrl_c);
 
 static struct target_type *target_types[] = {
-	&arm7tdmi_target,
-	&arm9tdmi_target,
-	&arm920t_target,
-	&arm720t_target,
-	&arm966e_target,
-	&arm946e_target,
-	&arm926ejs_target,
-	&fa526_target,
-	&feroceon_target,
-	&dragonite_target,
-	&xscale_target,
-	&xtensa_chip_target,
-	&cortexm_target,
-	&cortexa_target,
-	&cortexr4_target,
+	// Keep in alphabetic order this list of targets
+	&aarch64_target,
+	&arcv2_target,
 	&arm11_target,
-	&ls1_sap_target,
-	&mips_m4k_target,
+	&arm720t_target,
+	&arm7tdmi_target,
+	&arm920t_target,
+	&arm926ejs_target,
+	&arm946e_target,
+	&arm966e_target,
+	&arm9tdmi_target,
+	&armv8r_target,
+	&avr32_ap7k_target,
 	&avr_target,
+	&cortexa_target,
+	&cortexm_target,
+	&cortexr4_target,
+	&dragonite_target,
 	&dsp563xx_target,
 	&dsp5680xx_target,
-	&testee_target,
-	&avr32_ap7k_target,
-	&hla_target,
-	&esp32_target,
+	&esirisc_target,
 	&esp32s2_target,
 	&esp32s3_target,
-	&or1k_target,
-	&quark_x10xx_target,
-	&quark_d20xx_target,
-	&stm8_target,
-	&riscv_target,
+	&esp32_target,
+	&fa526_target,
+	&feroceon_target,
+	&hla_target,
+	&ls1_sap_target,
 	&mem_ap_target,
-	&esirisc_target,
-	&arcv2_target,
-	&aarch64_target,
-	&armv8r_target,
+	&mips_m4k_target,
 	&mips_mips64_target,
-	NULL,
+	&or1k_target,
+	&quark_d20xx_target,
+	&quark_x10xx_target,
+	&riscv_target,
+	&stm8_target,
+	&testee_target,
+	&xscale_target,
+	&xtensa_chip_target,
 };
 
 struct target *all_targets;
@@ -650,9 +650,9 @@ static int identity_virt2phys(struct target *target,
 	return ERROR_OK;
 }
 
-static int no_mmu(struct target *target, int *enabled)
+static int no_mmu(struct target *target, bool *enabled)
 {
-	*enabled = 0;
+	*enabled = false;
 	return ERROR_OK;
 }
 
@@ -1983,7 +1983,7 @@ int target_alloc_working_area_try(struct target *target, uint32_t size, struct w
 	/* Reevaluate working area address based on MMU state*/
 	if (!target->working_areas) {
 		int retval;
-		int enabled;
+		bool enabled;
 
 		retval = target->type->mmu(target, &enabled);
 		if (retval != ERROR_OK)
@@ -2549,7 +2549,7 @@ int target_read_u64(struct target *target, target_addr_t address, uint64_t *valu
 
 	if (retval == ERROR_OK) {
 		*value = target_buffer_get_u64(target, value_buf);
-		LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%16.16" PRIx64 "",
+		LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%16.16" PRIx64,
 				  address,
 				  *value);
 	} else {
@@ -2573,7 +2573,7 @@ int target_read_u32(struct target *target, target_addr_t address, uint32_t *valu
 
 	if (retval == ERROR_OK) {
 		*value = target_buffer_get_u32(target, value_buf);
-		LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%8.8" PRIx32 "",
+		LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%8.8" PRIx32,
 				  address,
 				  *value);
 	} else {
@@ -2640,7 +2640,7 @@ int target_write_u64(struct target *target, target_addr_t address, uint64_t valu
 		return ERROR_FAIL;
 	}
 
-	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%16.16" PRIx64 "",
+	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%16.16" PRIx64,
 			  address,
 			  value);
 
@@ -2661,7 +2661,7 @@ int target_write_u32(struct target *target, target_addr_t address, uint32_t valu
 		return ERROR_FAIL;
 	}
 
-	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%8.8" PRIx32 "",
+	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%8.8" PRIx32,
 			  address,
 			  value);
 
@@ -2721,7 +2721,7 @@ int target_write_phys_u64(struct target *target, target_addr_t address, uint64_t
 		return ERROR_FAIL;
 	}
 
-	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%16.16" PRIx64 "",
+	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%16.16" PRIx64,
 			  address,
 			  value);
 
@@ -2742,7 +2742,7 @@ int target_write_phys_u32(struct target *target, target_addr_t address, uint32_t
 		return ERROR_FAIL;
 	}
 
-	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%8.8" PRIx32 "",
+	LOG_DEBUG("address: " TARGET_ADDR_FMT ", value: 0x%8.8" PRIx32,
 			  address,
 			  value);
 
@@ -3212,8 +3212,6 @@ COMMAND_HANDLER(handle_wait_halt_command)
 /* wait for target state to change. The trick here is to have a low
  * latency for short waits and not to suck up all the CPU time
  * on longer waits.
- *
- * After 500ms, keep_alive() is invoked
  */
 int target_wait_state(struct target *target, enum target_state state, unsigned int ms)
 {
@@ -3235,8 +3233,7 @@ int target_wait_state(struct target *target, enum target_state state, unsigned i
 				nvp_value2name(nvp_target_state, state)->name);
 		}
 
-		if (cur - then > 500)
-			keep_alive();
+		keep_alive();
 
 		if ((cur-then) > ms) {
 			LOG_ERROR("timed out while waiting for target %s",
@@ -3554,20 +3551,20 @@ COMMAND_HANDLER(handle_mw_command)
 	struct target *target = get_current_target(CMD_CTX);
 	unsigned int wordsize;
 	switch (CMD_NAME[2]) {
-		case 'd':
-			wordsize = 8;
-			break;
-		case 'w':
-			wordsize = 4;
-			break;
-		case 'h':
-			wordsize = 2;
-			break;
-		case 'b':
-			wordsize = 1;
-			break;
-		default:
-			return ERROR_COMMAND_SYNTAX_ERROR;
+	case 'd':
+		wordsize = 8;
+		break;
+	case 'w':
+		wordsize = 4;
+		break;
+	case 'h':
+		wordsize = 2;
+		break;
+	case 'b':
+		wordsize = 1;
+		break;
+	default:
+		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
 	return target_fill_mem(target, address, fn, wordsize, value, count);
@@ -3960,7 +3957,7 @@ static int handle_bp_command_set(struct command_invocation *cmd,
 		retval = context_breakpoint_add(target, asid, length, hw);
 		/* error is always logged in context_breakpoint_add(), do not print it again */
 		if (retval == ERROR_OK)
-			command_print(cmd, "Context breakpoint set at 0x%8.8" PRIx32 "", asid);
+			command_print(cmd, "Context breakpoint set at 0x%8.8" PRIx32, asid);
 
 	} else {
 		if (!target->type->add_hybrid_breakpoint) {
@@ -3970,7 +3967,7 @@ static int handle_bp_command_set(struct command_invocation *cmd,
 		retval = hybrid_breakpoint_add(target, addr, asid, length, hw);
 		/* error is always logged in hybrid_breakpoint_add(), do not print it again */
 		if (retval == ERROR_OK)
-			command_print(cmd, "Hybrid breakpoint set at 0x%8.8" PRIx32 "", asid);
+			command_print(cmd, "Hybrid breakpoint set at 0x%8.8" PRIx32, asid);
 	}
 	return retval;
 }
@@ -3983,39 +3980,39 @@ COMMAND_HANDLER(handle_bp_command)
 	int hw = BKPT_SOFT;
 
 	switch (CMD_ARGC) {
-		case 0:
-			return handle_bp_command_list(CMD);
+	case 0:
+		return handle_bp_command_list(CMD);
 
-		case 2:
-			asid = 0;
-			COMMAND_PARSE_ADDRESS(CMD_ARGV[0], addr);
-			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
-			return handle_bp_command_set(CMD, addr, asid, length, hw);
+	case 2:
+		asid = 0;
+		COMMAND_PARSE_ADDRESS(CMD_ARGV[0], addr);
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
+		return handle_bp_command_set(CMD, addr, asid, length, hw);
 
-		case 3:
-			if (strcmp(CMD_ARGV[2], "hw") == 0) {
-				hw = BKPT_HARD;
-				COMMAND_PARSE_ADDRESS(CMD_ARGV[0], addr);
-				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
-				asid = 0;
-				return handle_bp_command_set(CMD, addr, asid, length, hw);
-			} else if (strcmp(CMD_ARGV[2], "hw_ctx") == 0) {
-				hw = BKPT_HARD;
-				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], asid);
-				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
-				addr = 0;
-				return handle_bp_command_set(CMD, addr, asid, length, hw);
-			}
-			/* fallthrough */
-		case 4:
+	case 3:
+		if (strcmp(CMD_ARGV[2], "hw") == 0) {
 			hw = BKPT_HARD;
 			COMMAND_PARSE_ADDRESS(CMD_ARGV[0], addr);
-			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], asid);
-			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], length);
+			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
+			asid = 0;
 			return handle_bp_command_set(CMD, addr, asid, length, hw);
+		} else if (strcmp(CMD_ARGV[2], "hw_ctx") == 0) {
+			hw = BKPT_HARD;
+			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], asid);
+			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
+			addr = 0;
+			return handle_bp_command_set(CMD, addr, asid, length, hw);
+		}
+		/* fallthrough */
+	case 4:
+		hw = BKPT_HARD;
+		COMMAND_PARSE_ADDRESS(CMD_ARGV[0], addr);
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], asid);
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], length);
+		return handle_bp_command_set(CMD, addr, asid, length, hw);
 
-		default:
-			return ERROR_COMMAND_SYNTAX_ERROR;
+	default:
+		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 }
 
@@ -4650,11 +4647,18 @@ COMMAND_HANDLER(handle_target_write_memory)
  */
 void target_handle_event(struct target *target, enum target_event e)
 {
-	struct target_event_action *teap;
+	struct target_event_action *teap, *tmp;
 	int retval;
 
-	list_for_each_entry(teap, &target->events_action, list) {
+	list_for_each_entry_safe(teap, tmp, &target->events_action, list) {
 		if (teap->event == e) {
+			/*
+			 * The event can be destroyed by its own handler.
+			 * Make a local copy and use it in place of the original.
+			 */
+			struct target_event_action local_teap = *teap;
+			teap = &local_teap;
+
 			LOG_DEBUG("target: %s (%s) event: %d (%s) action: %s",
 					   target_name(target),
 					   target_type_name(target),
@@ -4670,7 +4674,13 @@ void target_handle_event(struct target *target, enum target_event e)
 			struct target *saved_target_override = cmd_ctx->current_target_override;
 			cmd_ctx->current_target_override = target;
 
+			/*
+			 * The event can be destroyed by its own handler.
+			 * Prevent the body to get deallocated by Jim.
+			 */
+			Jim_IncrRefCount(teap->body);
 			retval = Jim_EvalObj(teap->interp, teap->body);
+			Jim_DecrRefCount(teap->interp, teap->body);
 
 			cmd_ctx->current_target_override = saved_target_override;
 
@@ -4719,7 +4729,7 @@ COMMAND_HANDLER(handle_target_get_reg)
 
 		const char *reg_name = Jim_String(elem);
 
-		struct reg *reg = register_get_by_name(target->reg_cache, reg_name, false);
+		struct reg *reg = register_get_by_name(target->reg_cache, reg_name, true);
 
 		if (!reg || !reg->exist) {
 			command_print(CMD, "unknown register '%s'", reg_name);
@@ -4777,7 +4787,7 @@ COMMAND_HANDLER(handle_set_reg_command)
 	for (unsigned int i = 0; i < length; i += 2) {
 		const char *reg_name = Jim_String(dict[i]);
 		const char *reg_value = Jim_String(dict[i + 1]);
-		struct reg *reg = register_get_by_name(target->reg_cache, reg_name, false);
+		struct reg *reg = register_get_by_name(target->reg_cache, reg_name, true);
 
 		if (!reg || !reg->exist) {
 			command_print(CMD, "unknown register '%s'", reg_name);
@@ -4873,16 +4883,18 @@ static COMMAND_HELPER(target_configure, struct target *target, unsigned int inde
 			goi.is_configure = is_configure;
 			int e = (*target->type->target_jim_configure)(target, &goi);
 			index = CMD_ARGC - goi.argc;
+
+			int reslen;
+			const char *result = Jim_GetString(Jim_GetResult(CMD_CTX->interp), &reslen);
+			if (reslen > 0)
+				command_print(CMD, "%s", result);
+
 			if (e == JIM_OK) {
 				/* more? */
 				continue;
 			}
 			if (e == JIM_ERR) {
 				/* An error */
-				int reslen;
-				const char *result = Jim_GetString(Jim_GetResult(CMD_CTX->interp), &reslen);
-				if (reslen > 0)
-					command_print(CMD, "%s", result);
 				return ERROR_FAIL;
 			}
 			/* otherwise we 'continue' below */
@@ -4908,7 +4920,8 @@ static COMMAND_HELPER(target_configure, struct target *target, unsigned int inde
 
 		case TCFG_EVENT:
 			if (index == CMD_ARGC) {
-				command_print(CMD, "missing event-name");
+				command_print(CMD, "expecting %s event-name event-body",
+						CMD_ARGV[index - 1]);
 				return ERROR_COMMAND_ARGUMENT_INVALID;
 			}
 
@@ -4921,7 +4934,8 @@ static COMMAND_HELPER(target_configure, struct target *target, unsigned int inde
 
 			if (is_configure) {
 				if (index == CMD_ARGC) {
-					command_print(CMD, "missing event-body");
+					command_print(CMD, "expecting %s %s event-body",
+							CMD_ARGV[index - 2], CMD_ARGV[index - 1]);
 					return ERROR_COMMAND_ARGUMENT_INVALID;
 				}
 			}
@@ -5160,17 +5174,10 @@ static COMMAND_HELPER(target_configure, struct target *target, unsigned int inde
 					command_print(CMD, "missing argument to %s", CMD_ARGV[index - 1]);
 					return ERROR_COMMAND_ARGUMENT_INVALID;
 				}
-				struct jim_getopt_info goi;
-				jim_getopt_setup(&goi, CMD_CTX->interp, CMD_ARGC - index, CMD_JIMTCL_ARGV + index);
+				retval = rtos_create(CMD, target, CMD_ARGV[index]);
+				if (retval != ERROR_OK)
+					return retval;
 				index++;
-				goi.is_configure = true;
-				int resval = rtos_create(&goi, target);
-				int reslen;
-				const char *result = Jim_GetString(Jim_GetResult(CMD_CTX->interp), &reslen);
-				if (reslen > 0)
-					command_print(CMD, "%s", result);
-				if (resval != JIM_OK)
-					return ERROR_FAIL;
 			} else {
 				if (index != CMD_ARGC)
 					return ERROR_COMMAND_SYNTAX_ERROR;
@@ -5693,9 +5700,8 @@ static const struct command_registration target_instance_command_handlers[] = {
 COMMAND_HANDLER(handle_target_create)
 {
 	int retval = ERROR_OK;
-	int x;
 
-	if (CMD_ARGC < 4)
+	if (CMD_ARGC < 2)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
 	/* check if the target name clashes with an existing command name */
@@ -5717,15 +5723,16 @@ COMMAND_HANDLER(handle_target_create)
 		LOG_INFO("The selected transport took over low-level target control. The results might differ compared to plain JTAG/SWD");
 	}
 	/* now does target type exist */
-	for (x = 0 ; target_types[x] ; x++) {
+	size_t x;
+	for (x = 0 ; x < ARRAY_SIZE(target_types) ; x++) {
 		if (strcmp(cp, target_types[x]->name) == 0) {
 			/* found */
 			break;
 		}
 	}
-	if (!target_types[x]) {
+	if (x == ARRAY_SIZE(target_types)) {
 		char *all = NULL;
-		for (x = 0 ; target_types[x] ; x++) {
+		for (x = 0 ; x < ARRAY_SIZE(target_types) ; x++) {
 			char *prev = all;
 			if (all)
 				all = alloc_printf("%s, %s", all, target_types[x]->name);
@@ -5927,7 +5934,7 @@ COMMAND_HANDLER(handle_target_types)
 	if (CMD_ARGC != 0)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	for (unsigned int x = 0; target_types[x]; x++)
+	for (size_t x = 0; x < ARRAY_SIZE(target_types); x++)
 		command_print(CMD, "%s", target_types[x]->name);
 
 	return ERROR_OK;
@@ -6040,7 +6047,7 @@ static const struct command_registration target_subcommand_handlers[] = {
 		.name = "create",
 		.mode = COMMAND_CONFIG,
 		.handler = handle_target_create,
-		.usage = "name type '-chain-position' name [options ...]",
+		.usage = "name type [options ...]",
 		.help = "Creates and selects a new target",
 	},
 	{
@@ -6762,25 +6769,25 @@ static int target_register_user_commands(struct command_context *cmd_ctx)
 const char *target_debug_reason_str(enum target_debug_reason reason)
 {
 	switch (reason) {
-		case DBG_REASON_DBGRQ:
-			return "DBGRQ";
-		case DBG_REASON_BREAKPOINT:
-			return "BREAKPOINT";
-		case DBG_REASON_WATCHPOINT:
-			return "WATCHPOINT";
-		case DBG_REASON_WPTANDBKPT:
-			return "WPTANDBKPT";
-		case DBG_REASON_SINGLESTEP:
-			return "SINGLESTEP";
-		case DBG_REASON_NOTHALTED:
-			return "NOTHALTED";
-		case DBG_REASON_EXIT:
-			return "EXIT";
-		case DBG_REASON_EXC_CATCH:
-			return "EXC_CATCH";
-		case DBG_REASON_UNDEFINED:
-			return "UNDEFINED";
-		default:
-			return "UNKNOWN!";
+	case DBG_REASON_DBGRQ:
+		return "DBGRQ";
+	case DBG_REASON_BREAKPOINT:
+		return "BREAKPOINT";
+	case DBG_REASON_WATCHPOINT:
+		return "WATCHPOINT";
+	case DBG_REASON_WPTANDBKPT:
+		return "WPTANDBKPT";
+	case DBG_REASON_SINGLESTEP:
+		return "SINGLESTEP";
+	case DBG_REASON_NOTHALTED:
+		return "NOTHALTED";
+	case DBG_REASON_EXIT:
+		return "EXIT";
+	case DBG_REASON_EXC_CATCH:
+		return "EXC_CATCH";
+	case DBG_REASON_UNDEFINED:
+		return "UNDEFINED";
+	default:
+		return "UNKNOWN!";
 	}
 }
