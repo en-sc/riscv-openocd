@@ -11837,7 +11837,7 @@ Display/set the current core displayed in GDB. This is needed only if
 @code{riscv smp} was used.
 @end deffn
 
-@deffn {Command} {riscv use_bscan_tunnel} width [type]
+@deffn {Config Command} {riscv use_bscan_tunnel} width [type]
 Enable or disable use of a BSCAN tunnel to reach the Debug Module. Supply the
 @var{width} of the DM transport TAP's instruction register to enable. The
 @var{width} should fit into 7 bits. Supply a value of 0 to disable.
@@ -11861,7 +11861,7 @@ tunneled DR scan consists of:
 @end enumerate
 @end deffn
 
-@deffn {Command} {riscv set_bscan_tunnel_ir} value
+@deffn {Config Command} {riscv set_bscan_tunnel_ir} value
 Allows the use_bscan_tunnel feature to target non Xilinx device by
 specifying the JTAG TAP IR used to access the bscan tunnel.
 @end deffn

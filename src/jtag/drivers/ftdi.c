@@ -113,12 +113,12 @@ static void cjtag_reset_online_activate(void);
   to the two-wire clocking and signaling of OScan1 protocol, if placed into OScan1 mode
   during initialization.
 */
-static void oscan1_mpsse_clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset, uint8_t *in,
-				    unsigned in_offset, unsigned length, uint8_t mode);
-static void oscan1_mpsse_clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset, uint8_t *in,
-				      unsigned in_offset, unsigned length, bool tdi, uint8_t mode);
-static void oscan1_mpsse_clock_tms_cs_out(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset,
-					  unsigned length, bool tdi, uint8_t mode);
+static void oscan1_mpsse_clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset, uint8_t *in,
+				    unsigned int in_offset, unsigned int length, uint8_t mode);
+static void oscan1_mpsse_clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset, uint8_t *in,
+				      unsigned int in_offset, unsigned int length, bool tdi, uint8_t mode);
+static void oscan1_mpsse_clock_tms_cs_out(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset,
+					  unsigned int length, bool tdi, uint8_t mode);
 
 static bool oscan1_mode;
 
@@ -274,8 +274,8 @@ static int ftdi_get_signal(const struct signal *s, uint16_t *value_out)
 }
 
 #if BUILD_FTDI_CJTAG == 1
-static void clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset, uint8_t *in,
-		     unsigned in_offset, unsigned length, uint8_t mode)
+static void clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset, uint8_t *in,
+		     unsigned int in_offset, unsigned int length, uint8_t mode)
 {
 	if (oscan1_mode)
 		oscan1_mpsse_clock_data(ctx, out, out_offset, in, in_offset, length, mode);
@@ -283,8 +283,8 @@ static void clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_o
 		mpsse_clock_data(ctx, out, out_offset, in, in_offset, length, mode);
 }
 
-static void clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset, uint8_t *in,
-		       unsigned in_offset, unsigned length, bool tdi, uint8_t mode)
+static void clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset, uint8_t *in,
+		       unsigned int in_offset, unsigned int length, bool tdi, uint8_t mode)
 {
 	if (oscan1_mode)
 		oscan1_mpsse_clock_tms_cs(ctx, out, out_offset, in, in_offset, length, tdi, mode);
@@ -292,8 +292,8 @@ static void clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out
 		mpsse_clock_tms_cs(ctx, out, out_offset, in, in_offset, length, tdi, mode);
 }
 
-static void clock_tms_cs_out(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset,
-			   unsigned length, bool tdi, uint8_t mode)
+static void clock_tms_cs_out(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset,
+			   unsigned int length, bool tdi, uint8_t mode)
 {
 	if (oscan1_mode)
 		oscan1_mpsse_clock_tms_cs_out(ctx, out, out_offset, length, tdi, mode);
@@ -543,6 +543,10 @@ static void ftdi_execute_scan(struct jtag_command *cmd)
 			uint8_t last_bit = 0;
 			if (field->out_value)
 				bit_copy(&last_bit, 0, field->out_value, field->num_bits - 1, 1);
+
+			/* If endstate is TAP_IDLE, clock out 1-1-0 (->EXIT1 ->UPDATE ->IDLE)
+			 * Otherwise, clock out 1-0 (->EXIT1 ->PAUSE)
+			 */
 			uint8_t tms_bits = 0x03;
 			DO_CLOCK_TMS_CS(mpsse_ctx,
 					&tms_bits,
@@ -760,9 +764,9 @@ static int ftdi_initialize(void)
 			return ERROR_JTAG_INIT_FAILED;
 		}
 		/* A dummy JTAG_SEL would have zero mask */
-		if (sig->data_mask)
+		if (sig->data_mask) {
 			ftdi_set_signal(sig, '0');
-		else if (jscan3_mode) {
+		} else if (jscan3_mode) {
 			LOG_ERROR("In JScan3 mode JTAG_SEL signal cannot be dummy, data mask needed");
 			return ERROR_JTAG_INIT_FAILED;
 		}
@@ -799,17 +803,17 @@ static int ftdi_quit(void)
 }
 
 #if BUILD_FTDI_CJTAG == 1
-static void oscan1_mpsse_clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset, uint8_t *in,
-		     unsigned in_offset, unsigned length, uint8_t mode)
+static void oscan1_mpsse_clock_data(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset, uint8_t *in,
+		     unsigned int in_offset, unsigned int length, uint8_t mode)
 {
 	static const uint8_t zero;
 	static const uint8_t one = 1;
 
 	struct signal *tmsc_en = find_signal_by_name("TMSC_EN");
 
-	LOG_DEBUG_IO("oscan1_mpsse_clock_data: %sout %d bits", in ? "in" : "", length);
+	LOG_DEBUG_IO("%sout %d bits", in ? "in" : "", length);
 
-	for (unsigned i = 0; i < length; i++) {
+	for (unsigned int i = 0; i < length; i++) {
 		int bitnum;
 		uint8_t bit;
 
@@ -817,7 +821,7 @@ static void oscan1_mpsse_clock_data(struct mpsse_ctx *ctx, const uint8_t *out, u
 
 		/* drive TMSC to the *negation* of the desired TDI value */
 		bitnum = out_offset + i;
-		bit = out ? ((out[bitnum/8] >> (bitnum%8)) & 0x1) : 0;
+		bit = out ? ((out[bitnum / 8] >> (bitnum % 8)) & 0x1) : 0;
 
 		/* Try optimized case first: if desired TDI bit is 1, then we
 		   can fuse what would otherwise be the first two MPSSE commands */
@@ -836,25 +840,24 @@ static void oscan1_mpsse_clock_data(struct mpsse_ctx *ctx, const uint8_t *out, u
 			ftdi_set_signal(tmsc_en, '0'); /* put TMSC in high impedance */
 
 		/* drive another TCK without driving TMSC (TDO cycle) */
-		mpsse_clock_tms_cs(mpsse_ctx, &zero, 0, in, in_offset+i, 1, false, mode);
+		mpsse_clock_tms_cs(mpsse_ctx, &zero, 0, in, in_offset + i, 1, false, mode);
 
 		if (tmsc_en)
 			ftdi_set_signal(tmsc_en, '1'); /* drive again TMSC */
 	}
 }
 
-
-static void oscan1_mpsse_clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset, uint8_t *in,
-		       unsigned in_offset, unsigned length, bool tdi, uint8_t mode)
+static void oscan1_mpsse_clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset, uint8_t *in,
+		       unsigned int in_offset, unsigned int length, bool tdi, uint8_t mode)
 {
 	static const uint8_t zero;
 	static const uint8_t one = 1;
 
 	struct signal *tmsc_en = find_signal_by_name("TMSC_EN");
 
-	LOG_DEBUG_IO("oscan1_mpsse_clock_tms_cs: %sout %d bits, tdi=%d", in ? "in" : "", length, tdi);
+	LOG_DEBUG_IO("%sout %d bits, tdi=%d", in ? "in" : "", length, tdi);
 
-	for (unsigned i = 0; i < length; i++) {
+	for (unsigned int i = 0; i < length; i++) {
 		int bitnum;
 		uint8_t tmsbit;
 		uint8_t tdibit;
@@ -866,7 +869,7 @@ static void oscan1_mpsse_clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out,
 
 		/* drive TMSC to desired TMS value */
 		bitnum = out_offset + i;
-		tmsbit = ((out[bitnum/8] >> (bitnum%8)) & 0x1);
+		tmsbit = ((out[bitnum / 8] >> (bitnum % 8)) & 0x1);
 
 		if (tdibit == tmsbit) {
 			/* Can squash into a single MPSSE command */
@@ -882,20 +885,18 @@ static void oscan1_mpsse_clock_tms_cs(struct mpsse_ctx *ctx, const uint8_t *out,
 			ftdi_set_signal(tmsc_en, '0'); /* put TMSC in high impedance */
 
 		/* drive another TCK without driving TMSC (TDO cycle) */
-		mpsse_clock_tms_cs(mpsse_ctx, &zero, 0, in, in_offset+i, 1, false, mode);
+		mpsse_clock_tms_cs(mpsse_ctx, &zero, 0, in, in_offset + i, 1, false, mode);
 
 		if (tmsc_en)
 			ftdi_set_signal(tmsc_en, '1'); /* drive again TMSC */
 	}
 }
 
-
-static void oscan1_mpsse_clock_tms_cs_out(struct mpsse_ctx *ctx, const uint8_t *out, unsigned out_offset,
-			   unsigned length, bool tdi, uint8_t mode)
+static void oscan1_mpsse_clock_tms_cs_out(struct mpsse_ctx *ctx, const uint8_t *out, unsigned int out_offset,
+			   unsigned int length, bool tdi, uint8_t mode)
 {
 	oscan1_mpsse_clock_tms_cs(ctx, out, out_offset, 0, 0, length, tdi, mode);
 }
-
 
 static void cjtag_set_tck_tms_tdi(struct signal *tck, char tckvalue, struct signal *tms,
 				   char tmsvalue, struct signal *tdi, char tdivalue)
@@ -1062,7 +1063,7 @@ static void cjtag_reset_online_activate(void)
 	if (jscan3_mode) {
 		/* Update the sequence above to enable JScan3 instead of OScan1 */
 		sequence[ESCAPE_SEQ_OAC_BIT2].tdi = '0';
-		sequence[ESCAPE_SEQ_OAC_BIT2+1].tdi = '0';
+		sequence[ESCAPE_SEQ_OAC_BIT2 + 1].tdi = '0';
 	}
 
 	/* if defined TMSC_EN, replace tms with it */
@@ -1070,7 +1071,7 @@ static void cjtag_reset_online_activate(void)
 		tms = tmsc_en;
 
 	/* Send the sequence to the adapter */
-	for (size_t i = 0; i < sizeof(sequence)/sizeof(sequence[0]); i++)
+	for (size_t i = 0; i < ARRAY_SIZE(sequence); i++)
 		cjtag_set_tck_tms_tdi(tck, sequence[i].tck, tms, sequence[i].tms, tdi, sequence[i].tdi);
 
 	/* If JScan3 mode, configure cJTAG adapter to 4-wire */
@@ -1079,7 +1080,6 @@ static void cjtag_reset_online_activate(void)
 
 	ftdi_get_signal(tdo, &tdovalue);  /* Just to force a flush */
 }
-
 #endif /* #if BUILD_FTDI_CJTAG == 1 */
 
 COMMAND_HANDLER(ftdi_handle_device_desc_command)

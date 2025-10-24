@@ -174,7 +174,7 @@ struct target *get_available_target_from_connection(struct connection *connectio
 	return target;
 }
 
-/** Return true iff the given connection includes the given target. */
+/** Return true if the given connection includes the given target. */
 static bool gdb_connection_includes_target(struct connection *connection, struct target *target)
 {
 	struct gdb_service *gdb_service = connection->service->priv;
@@ -1840,10 +1840,12 @@ static int gdb_breakpoint_watchpoint_packet(struct connection *connection,
 				struct target *bp_target = target;
 				if (target->rtos && bp_type == BKPT_SOFT) {
 					bp_target = rtos_swbp_target(target, address, size, bp_type);
-					if (!bp_target)
-						return ERROR_FAIL;
+					if (!bp_target) {
+						retval = ERROR_FAIL;
+						break;
+					}
 				}
-				retval = breakpoint_add(target, address, size, bp_type);
+				retval = breakpoint_add(bp_target, address, size, bp_type);
 			} else {
 				assert(packet[0] == 'z');
 				retval = breakpoint_remove(target, address);
@@ -3045,7 +3047,7 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 	__attribute__((unused)) int packet_size)
 {
 	struct gdb_connection *gdb_connection = connection->priv;
-	struct target *target = get_available_target_from_connection(connection);
+	struct target *target = get_target_from_connection(connection);
 	const char *parse = packet;
 	int retval;
 
@@ -3129,8 +3131,6 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 		}
 
 		if (target->rtos) {
-			/* FIXME: why is this necessary? rtos state should be up-to-date here already! */
-
 			/* Sometimes this results in picking a different thread than
 			 * gdb just requested to step. Then we fake it, and now there's
 			 * a different thread selected than gdb expects, so register
@@ -3146,7 +3146,6 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 			 * P8=cc060607eb89ca7f$		# write r8 on other thread
 			 * g$
 			 * */
-			/* rtos_update_threads(target); */
 
 			target->rtos->gdb_target_for_threadid(connection, thread_id, &ct);
 
@@ -3224,8 +3223,8 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 		}
 
 		if (ct->state == TARGET_UNAVAILABLE) {
-			LOG_TARGET_ERROR(ct, "Target is unavailable, so cannot be stepped. "
-					     "Pretending to gdb that it is running until it's available again.");
+			LOG_TARGET_INFO(ct, "Target is unavailable, so cannot be stepped. "
+				"Pretending to gdb that it is running until it's available again.");
 			retval = ERROR_FAIL;
 		} else {
 			retval = target_step(ct, current_pc, 0, false);
@@ -3832,8 +3831,8 @@ static int gdb_input_inner(struct connection *connection)
 					target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
 				gdb_con->ctrl_c = false;
 			} else {
-				LOG_TARGET_INFO(target, "Not running when halt was requested, stopping GDB. (state=%d)",
-						target->state);
+				LOG_TARGET_INFO(target, "Not running (%s) when halt was requested, stopping GDB",
+						target_state_name(target));
 				target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
 			}
 		}
